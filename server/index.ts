@@ -16,10 +16,13 @@ import {
   enforceBridgeClientCompatibility,
 } from './client-capabilities.js';
 import { getBuildInfo } from './build-info.js';
+import { instanceAuth, instanceWebSocketAuthorized } from './instance-auth.js';
+import { requireDocumentAccess } from './document-access.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PORT = Number.parseInt(process.env.PORT || '4000', 10);
+const HOST = process.env.HOST || '127.0.0.1';
 const DEFAULT_ALLOWED_CORS_ORIGINS = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
@@ -39,14 +42,17 @@ function parseAllowedCorsOrigins(): Set<string> {
 async function main(): Promise<void> {
   const app = express();
   const server = createServer(app);
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  const wss = new WebSocketServer({ server, path: '/ws', verifyClient: ({ req }: { req: import('http').IncomingMessage }) => instanceWebSocketAuthorized(req) });
   wss.on('error', (error) => {
     console.error('[server] WebSocketServer error (non-fatal):', error);
   });
   const allowedCorsOrigins = parseAllowedCorsOrigins();
 
+  app.use(instanceAuth);
+  app.use(['/documents/:slug', '/api/documents/:slug', '/api/agent/:slug', '/d/:slug', '/og/share/:slug.png'], requireDocumentAccess);
   app.use(express.json({ limit: '10mb' }));
   app.use(express.static(path.join(__dirname, '..', 'public')));
+  app.use('/assets', express.static(path.join(__dirname, '..', 'dist', 'assets')));
 
   app.use((req, res, next) => {
     const originHeader = req.header('origin');
@@ -131,8 +137,8 @@ async function main(): Promise<void> {
   setupWebSocket(wss);
   await startCollabRuntimeEmbedded(PORT);
 
-  server.listen(PORT, () => {
-    console.log(`[proof-sdk] listening on http://127.0.0.1:${PORT}`);
+  server.listen(PORT, HOST, () => {
+    console.log(`[proof-sdk] listening on http://${HOST}:${PORT}`);
   });
 }
 

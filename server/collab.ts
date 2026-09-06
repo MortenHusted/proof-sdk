@@ -10936,7 +10936,7 @@ export async function startCollabRuntime(mainHttpPort: number): Promise<CollabRu
   }
 
   const collabPort = parsePositiveInt(process.env.COLLAB_PORT, mainHttpPort + 1);
-  const collabHost = process.env.COLLAB_HOST || '0.0.0.0';
+  const collabHost = process.env.COLLAB_HOST || '127.0.0.1';
   const collabPublicBase = process.env.COLLAB_PUBLIC_BASE_URL || `ws://localhost:${collabPort}`;
   const hasConfiguredCollabSecret = Boolean((process.env.PROOF_COLLAB_SIGNING_SECRET || '').trim());
   if (!hasConfiguredCollabSecret && !isLocalWsUrlBase(collabPublicBase)) {
