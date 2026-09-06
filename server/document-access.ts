@@ -1,11 +1,25 @@
 import type { RequestHandler } from 'express';
+import { createHmac } from 'node:crypto';
 import { getCookie, shareTokenCookieName } from './cookies.js';
-import { getDocumentBySlug, resolveDocumentAccessRole } from './db.js';
+import { createDocumentAccessToken, getDocumentBySlug, resolveDocumentAccessRole } from './db.js';
+import { instanceAgentAuthorized } from './instance-auth.js';
 
 /** Private deployments require a capability even on the SDK's public share routes. */
 export const requireDocumentAccess: RequestHandler = (req, res, next) => {
   if (process.env.PROOF_REQUIRE_DOCUMENT_TOKEN !== 'true') return next();
   const slug = String(req.params.slug ?? '');
+  if (instanceAgentAuthorized(req)) {
+    const document = getDocumentBySlug(slug);
+    if (document?.share_state === 'ACTIVE') {
+      const secret = createHmac('sha256', process.env.PROOF_INSTANCE_TOKEN!)
+        .update(JSON.stringify(['workspace-editor', slug, document.access_epoch])).digest('hex');
+      if (!resolveDocumentAccessRole(slug, secret)) createDocumentAccessToken(slug, 'editor', secret);
+      req.headers['x-share-token'] = secret;
+      req.headers['x-bridge-token'] = secret;
+      req.headers.authorization = `Bearer ${secret}`;
+      req.headers.cookie = `${shareTokenCookieName(slug)}=${secret}; ${req.headers.cookie || ''}`;
+    }
+  }
   const header = req.header('x-share-token') || req.header('x-bridge-token')
     || req.header('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
   const query = typeof req.query.token === 'string' ? req.query.token : '';

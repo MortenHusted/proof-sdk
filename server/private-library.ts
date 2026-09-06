@@ -1,12 +1,13 @@
 import express from 'express';
 import { createDocumentAccessToken, getDocumentBySlug, listActiveDocuments, resolveDocumentAccessRole } from './db.js';
 import { getCookie, shareTokenCookieName } from './cookies.js';
+import { instanceAgentAuthorized } from './instance-auth.js';
 
-// This is a single owner's library, not a multi-user document permission model.
+// One shared workspace for its owner and authenticated agents.
 const owner = process.env.PROOF_LIBRARY_USER || '';
 const allowedUsers = (process.env.PROOF_TAILSCALE_USERS || '').split(',').map(value => value.trim());
-function isOwner(req: express.Request): boolean {
-  return Boolean(owner && allowedUsers.includes(owner) && req.header('tailscale-user-login') === owner);
+function canBrowseLibrary(req: express.Request): boolean {
+  return instanceAgentAuthorized(req) || Boolean(owner && allowedUsers.includes(owner) && req.header('tailscale-user-login') === owner);
 }
 function escape(value: string): string {
   return value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
@@ -15,8 +16,12 @@ function escape(value: string): string {
 export const privateLibrary = express.Router();
 privateLibrary.get('/', (req, res, next) => {
   if (!owner) return next();
-  if (!isOwner(req)) { res.status(403).send('This document library is private.'); return; }
+  if (!canBrowseLibrary(req)) { res.status(403).send('This document library is private.'); return; }
   const documents = listActiveDocuments().sort((a, b) => b.updated_at.localeCompare(a.updated_at) || a.slug.localeCompare(b.slug));
+  if (req.accepts(['html', 'json']) === 'json') {
+    res.json({ documents: documents.map(doc => ({ slug: doc.slug, title: doc.title, updatedAt: doc.updated_at, url: `/d/${encodeURIComponent(doc.slug)}` })) });
+    return;
+  }
   res.type('html').send(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Your documents · Proof</title><style>
@@ -43,7 +48,7 @@ document.querySelector('#create').addEventListener('submit',async event=>{
 });
 
 privateLibrary.get('/library/open/:slug', (req, res) => {
-  if (!isOwner(req)) { res.status(403).send('This document library is private.'); return; }
+  if (!canBrowseLibrary(req)) { res.status(403).send('This document library is private.'); return; }
   const slug = String(req.params.slug);
   const doc = getDocumentBySlug(slug);
   if (!doc || doc.share_state !== 'ACTIVE') { res.status(404).send('Document unavailable.'); return; }

@@ -12,6 +12,9 @@ export function instanceAuthorized(req: IncomingMessage): boolean {
   if (!token && users.size === 0) return true;
   const user = req.headers['tailscale-user-login'];
   if (typeof user === 'string' && users.has(user)) return true;
+  return instanceAgentAuthorized(req);
+}
+export function instanceAgentAuthorized(req: IncomingMessage): boolean {
   const header = req.headers['x-proof-instance-token'];
   return Boolean(token && typeof header === 'string' && equal(header, token));
 }

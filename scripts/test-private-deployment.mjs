@@ -52,7 +52,7 @@ try {
     `/documents/${doc.slug}/bridge/state`, `/og/share/${doc.slug}.png`];
   for (const path of paths) {
     for (const token of [null, 'invalid', other.accessToken]) {
-      const response = await request(path, token);
+      const response = await request(path, token, { headers: { 'X-Proof-Instance-Token': '', 'Tailscale-User-Login': 'MortenHusted@github' } });
       assert.equal(response.status, 401, `${path} must reject absent/invalid/cross-document capability`);
       assert.ok(!(await response.text()).includes('Shared paragraph'));
     }
@@ -62,6 +62,13 @@ try {
   assert.equal(editor.status, 200);
   assert.ok(/assets\/editor\.js/.test(await editor.text()), 'browser receives built editor');
   assert.equal((await request('/assets/editor.js')).status, 200);
+  const agentIndex = await request('/', null, { headers: { Accept: 'application/json' } });
+  assert.equal(agentIndex.status, 200);
+  assert.deepEqual(new Set((await agentIndex.json()).documents.map(d => d.slug)), new Set([doc.slug, other.slug]));
+  for (const fixture of [doc, other]) {
+    assert.equal((await request(`/documents/${fixture.slug}`)).status, 200, 'agent reads every document without a document token');
+    assert.equal((await request(`/documents/${fixture.slug}/state`)).status, 200);
+  }
   const ownerHeaders = { 'Tailscale-User-Login': 'MortenHusted@github' };
   const library = await fetch(base + '/', { headers: ownerHeaders });
   assert.equal(library.status, 200);
@@ -69,7 +76,7 @@ try {
   assert.ok(html.includes('Private access fixture') && html.includes('Other capability fixture'));
   assert.ok(html.includes('New document'));
   assert.ok(!html.includes(doc.accessToken), 'library does not embed capabilities');
-  for (const headers of [instanceHeaders, { 'Tailscale-User-Login': '2biias@github' }]) {
+  for (const headers of [{ 'Tailscale-User-Login': '2biias@github' }]) {
     assert.equal((await fetch(base + '/', { headers })).status, 403);
     assert.equal((await fetch(base + `/library/open/${doc.slug}`, { headers, redirect: 'manual' })).status, 403);
   }
