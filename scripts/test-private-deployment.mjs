@@ -16,7 +16,7 @@ const base = `http://127.0.0.1:${port}`;
 const instance = randomUUID();
 const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
   env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_PATH: join(temp, 'proof.sqlite'),
-    PROOF_INSTANCE_TOKEN: instance, PROOF_REQUIRE_DOCUMENT_TOKEN: process.env.PROOF_REQUIRE_DOCUMENT_TOKEN ?? 'true',
+    PROOF_INSTANCE_TOKEN: instance, PROOF_TAILSCALE_USERS: 'MortenHusted@github,2biias@github', PROOF_REQUIRE_DOCUMENT_TOKEN: process.env.PROOF_REQUIRE_DOCUMENT_TOKEN ?? 'true',
     PROOF_PUBLIC_BASE_URL: base, COLLAB_PUBLIC_BASE_URL: `ws://127.0.0.1:${port}/ws`,
     PROOF_CORS_ALLOW_ORIGINS: base, PROOF_COLLAB_SIGNING_SECRET: randomUUID() },
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -62,16 +62,14 @@ try {
   assert.equal(editor.status, 200);
   assert.ok(/assets\/editor\.js/.test(await editor.text()), 'browser receives built editor');
   assert.equal((await request('/assets/editor.js')).status, 200);
-  const login = await fetch(base + '/_instance/login', { method: 'POST', redirect: 'manual',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ password: instance }) });
-  assert.equal(login.status, 303);
-  const cookie = login.headers.get('set-cookie');
-  assert.match(cookie, /HttpOnly/i);
-  assert.match(cookie, /SameSite=Strict/i);
+  for (const user of ['MortenHusted@github', '2biias@github']) {
+    assert.equal((await fetch(base + '/health', { headers: { 'Tailscale-User-Login': user } })).status, 200);
+  }
+  assert.equal((await fetch(base + '/health', { headers: { 'Tailscale-User-Login': 'other@github' } })).status, 401);
   const crossOrigin = await fetch(base + '/documents', { method: 'POST', headers: {
-    Cookie: cookie.split(';')[0], Origin: 'https://untrusted.example', 'Content-Type': 'application/json',
+    'Tailscale-User-Login': 'MortenHusted@github', Origin: 'https://untrusted.example', 'Content-Type': 'application/json',
   }, body: JSON.stringify({ markdown: 'must not be created' }) });
-  assert.equal(crossOrigin.status, 403, 'cookie-authenticated writes must reject foreign origins');
+  assert.equal(crossOrigin.status, 403, 'browser writes must reject foreign origins');
   const refused = await new Promise(resolve => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?slug=${doc.slug}&token=${doc.accessToken}`);
     ws.on('unexpected-response', (_request, response) => { response.resume(); resolve(response.statusCode); });
@@ -79,7 +77,7 @@ try {
     ws.on('open', () => { ws.close(); resolve(101); });
   });
   assert.equal(refused, 401, 'WebSocket must enforce instance authentication');
-  console.log('Private deployment: HTTP capabilities, cross-document denial, built editor/assets, login cookie, and WebSocket admission passed.');
+  console.log('Private deployment: HTTP capabilities, cross-document denial, built editor/assets, Tailscale users, foreign-origin denial, and WebSocket admission passed.');
 } finally {
   child.kill('SIGTERM');
   await new Promise(resolve => { if (child.exitCode !== null) resolve(); else child.once('exit', resolve); });
