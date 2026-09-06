@@ -14,3 +14,8 @@ plans/
 docs/*
 !docs/agent-docs.md
 .git
+.env
+.env.*
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

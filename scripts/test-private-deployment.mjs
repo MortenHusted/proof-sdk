@@ -68,6 +68,10 @@ try {
   const cookie = login.headers.get('set-cookie');
   assert.match(cookie, /HttpOnly/i);
   assert.match(cookie, /SameSite=Strict/i);
+  const crossOrigin = await fetch(base + '/documents', { method: 'POST', headers: {
+    Cookie: cookie.split(';')[0], Origin: 'https://untrusted.example', 'Content-Type': 'application/json',
+  }, body: JSON.stringify({ markdown: 'must not be created' }) });
+  assert.equal(crossOrigin.status, 403, 'cookie-authenticated writes must reject foreign origins');
   const refused = await new Promise(resolve => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?slug=${doc.slug}&token=${doc.accessToken}`);
     ws.on('unexpected-response', (_request, response) => { response.resume(); resolve(response.statusCode); });

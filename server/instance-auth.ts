@@ -41,6 +41,11 @@ instanceAuth.post('/_instance/login', express.urlencoded({ extended: false, limi
   res.redirect(303, '/');
 });
 instanceAuth.use((req, res, next) => {
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin
+    && !(process.env.PROOF_CORS_ALLOW_ORIGINS || '').split(',').map(value => value.trim()).includes(req.headers.origin)) {
+    res.status(403).json({ error: 'Origin not allowed' });
+    return;
+  }
   if (instanceAuthorized(req)) { next(); return; }
   if (req.method === 'GET' && req.accepts(['html', 'json']) === 'html') {
     res.status(401).type('html').send('<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Private Proof instance</title></head><body><h1>Private Proof instance</h1><p>Enter the instance password, then open your document link.</p><form method="post" action="/_instance/login"><label>Password <input type="password" name="password" autocomplete="current-password" required></label><button>Sign in</button></form></body></html>');
