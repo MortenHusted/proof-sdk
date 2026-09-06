@@ -18,6 +18,7 @@ import {
 import { getBuildInfo } from './build-info.js';
 import { instanceAuth, instanceWebSocketAuthorized } from './instance-auth.js';
 import { requireDocumentAccess } from './document-access.js';
+import { privateLibrary } from './private-library.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -86,6 +87,7 @@ async function main(): Promise<void> {
     next();
   });
 
+  app.use(privateLibrary);
   app.get('/', (_req, res) => {
     res.type('html').send(`<!doctype html>
 <html lang="en">

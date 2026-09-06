@@ -16,7 +16,7 @@ const base = `http://127.0.0.1:${port}`;
 const instance = randomUUID();
 const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
   env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_PATH: join(temp, 'proof.sqlite'),
-    PROOF_INSTANCE_TOKEN: instance, PROOF_TAILSCALE_USERS: 'MortenHusted@github,2biias@github', PROOF_REQUIRE_DOCUMENT_TOKEN: process.env.PROOF_REQUIRE_DOCUMENT_TOKEN ?? 'true',
+    PROOF_INSTANCE_TOKEN: instance, PROOF_TAILSCALE_USERS: 'MortenHusted@github,2biias@github', PROOF_LIBRARY_USER: 'MortenHusted@github', PROOF_REQUIRE_DOCUMENT_TOKEN: process.env.PROOF_REQUIRE_DOCUMENT_TOKEN ?? 'true',
     PROOF_PUBLIC_BASE_URL: base, COLLAB_PUBLIC_BASE_URL: `ws://127.0.0.1:${port}/ws`,
     PROOF_CORS_ALLOW_ORIGINS: base, PROOF_COLLAB_SIGNING_SECRET: randomUUID() },
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -62,6 +62,29 @@ try {
   assert.equal(editor.status, 200);
   assert.ok(/assets\/editor\.js/.test(await editor.text()), 'browser receives built editor');
   assert.equal((await request('/assets/editor.js')).status, 200);
+  const ownerHeaders = { 'Tailscale-User-Login': 'MortenHusted@github' };
+  const library = await fetch(base + '/', { headers: ownerHeaders });
+  assert.equal(library.status, 200);
+  const html = await library.text();
+  assert.ok(html.includes('Private access fixture') && html.includes('Other capability fixture'));
+  assert.ok(html.includes('New document'));
+  assert.ok(!html.includes(doc.accessToken), 'library does not embed capabilities');
+  for (const headers of [instanceHeaders, { 'Tailscale-User-Login': '2biias@github' }]) {
+    assert.equal((await fetch(base + '/', { headers })).status, 403);
+    assert.equal((await fetch(base + `/library/open/${doc.slug}`, { headers, redirect: 'manual' })).status, 403);
+  }
+  const opened = await fetch(base + `/library/open/${doc.slug}`, { headers: ownerHeaders, redirect: 'manual' });
+  assert.equal(opened.status, 303);
+  assert.equal(opened.headers.get('location'), `/d/${doc.slug}`);
+  const setCookie = opened.headers.get('set-cookie');
+  assert.ok(setCookie?.includes('HttpOnly') && setCookie.includes('SameSite=Lax'));
+  const cookieHeaders = { ...ownerHeaders, Cookie: setCookie.split(';')[0] };
+  const cleanEditor = await fetch(base + `/d/${doc.slug}`, { headers: { ...cookieHeaders, Accept: 'text/html', 'User-Agent': 'Mozilla/5.0 Chrome/130.0.0.0 Safari/537.36' } });
+  assert.equal(cleanEditor.status, 200);
+  assert.ok((await cleanEditor.text()).includes('assets/editor.js'));
+  const reopened = await fetch(base + `/library/open/${doc.slug}`, { headers: cookieHeaders, redirect: 'manual' });
+  assert.equal(reopened.headers.get('set-cookie'), null, 'reuse existing document access');
+  assert.equal((await fetch(base + '/library/open/missing-document', { headers: ownerHeaders })).status, 404);
   for (const user of ['MortenHusted@github', '2biias@github']) {
     assert.equal((await fetch(base + '/health', { headers: { 'Tailscale-User-Login': user } })).status, 200);
   }
@@ -77,7 +100,7 @@ try {
     ws.on('open', () => { ws.close(); resolve(101); });
   });
   assert.equal(refused, 401, 'WebSocket must enforce instance authentication');
-  console.log('Private deployment: HTTP capabilities, cross-document denial, built editor/assets, Tailscale users, foreign-origin denial, and WebSocket admission passed.');
+  console.log('Private deployment: owner library and clean editor links, HTTP capabilities, cross-document denial, built editor/assets, Tailscale users, foreign-origin denial, and WebSocket admission passed.');
 } finally {
   child.kill('SIGTERM');
   await new Promise(resolve => { if (child.exitCode !== null) resolve(); else child.once('exit', resolve); });
